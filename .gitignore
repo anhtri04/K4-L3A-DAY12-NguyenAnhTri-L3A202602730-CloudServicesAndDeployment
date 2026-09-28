@@ -18,6 +18,12 @@ Thumbs.db
 .idea/
 .vscode/
 
+# Node / frontend deps & build
+node_modules/
+dist/
+build/
+coverage/
+
 # Logs
 *.log
 

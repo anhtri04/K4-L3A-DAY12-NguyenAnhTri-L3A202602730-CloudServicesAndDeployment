@@ -1,0 +1,82 @@
+name: trading-agent
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-trading}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-trading}
+      POSTGRES_DB: ${POSTGRES_DB:-trading_agent}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-trading} -d ${POSTGRES_DB:-trading_agent}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - app
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ..
+      dockerfile: trading-agent-backend/Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: "4000"
+      DATABASE_URL: postgresql://${POSTGRES_USER:-trading}:${POSTGRES_PASSWORD:-trading}@postgres:5432/${POSTGRES_DB:-trading_agent}?schema=public
+      REDIS_URL: ${REDIS_URL}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?set JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET}
+      ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL:-900}
+      REFRESH_TOKEN_TTL: ${REFRESH_TOKEN_TTL:-604800}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - app
+    restart: unless-stopped
+
+  gateway:
+    build:
+      context: ..
+      dockerfile: trading-agent-gateway/Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: "8080"
+      BACKEND_URL: http://backend:4000
+      REDIS_URL: ${REDIS_URL}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?set JWT_ACCESS_SECRET}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?set ALLOWED_ORIGINS}
+      ALLOW_MISSING_ORIGIN: ${ALLOW_MISSING_ORIGIN:-true}
+      RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-60000}
+      RATE_LIMIT_GLOBAL_MAX: ${RATE_LIMIT_GLOBAL_MAX:-100}
+      RATE_LIMIT_AUTH_MAX: ${RATE_LIMIT_AUTH_MAX:-5}
+      RATE_LIMIT_CHAT_MAX: ${RATE_LIMIT_CHAT_MAX:-20}
+    ports:
+      # Local-only binding for debugging; public traffic arrives via cloudflared.
+      - "127.0.0.1:${GATEWAY_PORT:-8080}:8080"
+    depends_on:
+      - backend
+    networks:
+      - app
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    # Named tunnel mode. For an account-less quick tunnel use:
+    #   docker compose -f docker-compose.yml -f docker-compose.quicktunnel.yml up
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - gateway
+    networks:
+      - app
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+
+networks:
+  app:
+    driver: bridge

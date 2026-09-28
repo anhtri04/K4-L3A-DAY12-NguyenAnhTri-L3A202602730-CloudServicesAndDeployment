@@ -1,0 +1,7 @@
+# Account-less quick tunnel (random *.trycloudflare.com URL, no uptime SLA).
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.quicktunnel.yml up
+# Read the printed URL from:  docker compose logs cloudflared
+services:
+  cloudflared:
+    command: tunnel --no-autoupdate --url http://gateway:8080
